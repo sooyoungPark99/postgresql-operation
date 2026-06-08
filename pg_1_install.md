@@ -168,8 +168,12 @@ EXIT;
 ## 8. alias 설정 (편의 설정)
 
 > 자주 쓰는 명령어를 짧게 줄여 실무에서 빠르게 접속/운영할 수 있도록 한다.
+> alias는 root가 아닌 postgres 유저의 ~/.bash_profile에 추가한다.
 
 ```bash
+# postgres 유저로 전환
+su - postgres
+
 vi ~/.bash_profile
 ```
 
@@ -182,7 +186,7 @@ export PGPORT=5432
 export PATH=/usr/pgsql-15/bin:$PATH
 
 alias pg='psql -U postgres -p 5432'
-alias pgdb='psql -U postgres -p 5432 -d'   # pgdb testdb 형태로 특정 DB 접속
+alias pgdb='psql -U postgres -p 5432 -d'
 alias pgstart='systemctl start postgresql-15'
 alias pgstop='systemctl stop postgresql-15'
 alias pgstatus='systemctl status postgresql-15'
@@ -228,6 +232,7 @@ GRANT ALL PRIVILEGES ON DATABASE testdb TO scott;
 \l         -- DB 목록
 EXIT;
 ```
+<img width="1188" height="576" alt="image" src="https://github.com/user-attachments/assets/2559cf42-2068-49c1-92b0-d7fdc00e459a" />
 
 접속 테스트:
 
@@ -244,6 +249,7 @@ systemctl status postgresql-15
 ss -tlnp | grep 5432
 psql -U postgres -c "SELECT version();"
 ```
+<img width="1244" height="170" alt="image" src="https://github.com/user-attachments/assets/4704d7a1-4d1d-4470-a915-6b46e5a7b53b" />
 
 ---
 
