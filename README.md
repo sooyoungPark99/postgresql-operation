@@ -1,8 +1,8 @@
 # PostgreSQL 15 운영 및 PgPool-II 구성 가이드
 
 Oracle Linux 7.7 환경에서 PostgreSQL 15 실무 운영 시나리오와 PgPool-II를 구성하는 가이드입니다.
+
 백업/복구, 모니터링, Streaming Replication, PgPool-II 까지 함께 구성합니다.
-VirtualBox 기반의 실습 환경에서 진행했습니다.
 
 ---
 
