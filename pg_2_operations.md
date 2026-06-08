@@ -351,23 +351,20 @@ systemctl stop postgresql-15
 cp -r /var/lib/pgsql/15/data /var/lib/pgsql/15/data_broken
 
 # 5. 베이스 백업 복원
-1. rm -rf /var/lib/pgsql/15/data/*
-   현재 데이터 디렉토리 완전히 비움
-   (디렉토리 자체는 유지, 안의 내용만 삭제)
+-- 1. 현재 데이터 디렉토리 완전히 비움 (디렉토리 자체는 유지, 안의 내용만 삭제)
+rm -rf /var/lib/pgsql/15/data/*
 
-2. cp -r /backup/basebackup_pitr/* /var/lib/pgsql/15/data/
-   백업 파일을 비어있는 디렉토리에 복사
-   (백업 시점의 깨끗한 상태로 복원)
-        ↓
-3. chown -R postgres:postgres /var/lib/pgsql/15/data/
-   복사한 파일의 소유자를 postgres로 변경
-   (cp 명령어 실행 계정이 root라서
-    소유자가 root로 복사됨 → postgres로 변경 필요)
+-- 2. 백업 파일을 비어있는 디렉토리에 복사 (백업 시점의 깨끗한 상태로 복원)
+cp -r /backup/basebackup_pitr/* /var/lib/pgsql/15/data/
+
+-- 3. 복사한 파일의 소유자를 postgres로 변경
+-- (cp 명령어 실행 계정이 root라서 소유자가 root로 복사됨 → postgres로 변경 필요)
+chown -R postgres:postgres /var/lib/pgsql/15/data/
 
 # 6. 복구 설정 추가 (postgresql.conf에)
 cat >> /var/lib/pgsql/15/data/postgresql.conf << 'EOF'
 restore_command = 'cp /var/lib/pgsql/15/archive/%f %p'
-recovery_target_time = '2026-06-08 10:30:00'
+recovery_target_time = '2026-06-08 11:32:00'
 recovery_target_action = 'promote'
 EOF
 
@@ -391,6 +388,15 @@ psql -U postgres -d testdb -c "SELECT COUNT(*) FROM emp;"
 
 # 복구 모드 종료 확인 (pg_is_in_recovery = false 이면 완료)
 psql -U postgres -c "SELECT pg_is_in_recovery();"
+```
+<img width="1230" height="481" alt="image" src="https://github.com/user-attachments/assets/aaa44dc2-0053-42b0-8528-21c5d02e72bb" />
+
+```
+**PITR 복구 순서**
+
+1. 베이스 백업 복원 (데이터 디렉토리 덮어씌움)
+2. WAL 재실행 (특정 시점까지)
+3. DB 오픈
 ```
 
 ---
