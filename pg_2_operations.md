@@ -250,6 +250,17 @@ ls -lh /backup/basebackup_$(date +%Y%m%d)/pg_wal/
 분  시  일  월  요일  명령어
 0   2   *   *    *   명령어  →  매일 새벽 2시 정각 실행
 *   =  모든 값 (매분/매시/매일)
+
+0=일 1=월 2=화 3=수 4=목 5=금 6=토
+
+-- 예시
+
+# 매주 금요일 오후 9시 pg_dump 백업
+0 21 * * 5 pg_dump -U postgres -d testdb -F c -f /backup/testdb_$(date +\%Y\%m\%d).dump
+
+# 매주 화,금 오전 12시(자정) 2달 이상 된 백업 파일 자동 삭제
+# -mtime +60 : 수정된 지 60일 이상 된 파일 대상
+0 0 * * 2,5 find /backup -name "*.dump" -mtime +60 -delete
 ```
 
 ```bash
