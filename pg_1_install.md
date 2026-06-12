@@ -27,6 +27,7 @@ ss -tlnp | grep 5432
 ## 2. PGDG repo 등록
 
 > Oracle Linux 기본 repo에는 구버전만 있다. PostgreSQL 공식 repo를 등록해야 최신 버전 설치가 가능하다.
+> repo(Repository) = 소프트웨어 패키지를 저장하고 배포하는 저장소
 
 ```bash
 yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm
@@ -59,6 +60,20 @@ postgres --version
 
 > initdb는 PostgreSQL 데이터 디렉토리를 처음 생성하는 작업이다.
 > Oracle의 DBCA로 DB를 생성하는 것과 유사한 개념이다.
+
+#### initdb가 하는 일
+```
+/var/lib/pgsql/15/data/ 아래에
+
+postgresql.conf    ← 설정 파일 생성
+pg_hba.conf        ← 인증 설정 파일 생성
+base/              ← 시스템 DB 생성
+  ├── 1/           ← template1
+  ├── 4/           ← template0  
+  └── 5/           ← postgres DB
+pg_wal/            ← WAL 디렉토리 생성
+global/            ← 시스템 카탈로그 생성
+```
 
 ```bash
 /usr/pgsql-15/bin/postgresql-15-setup initdb
