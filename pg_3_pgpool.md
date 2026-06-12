@@ -19,8 +19,8 @@ Streaming Replication 구성 후 PgPool-II로 부하 분산 및 커넥션 풀링
 
 | 역할 | 호스트명 | IP |
 |------|---------|----|
-| Primary + PgPool-II | pg-primary | 172.31.0.260 |
-| Standby | pg-standby | 172.31.0.261 |
+| Primary + PgPool-II | pg-primary | 172.31.0.250 |
+| Standby | pg-standby | 172.31.0.251 |
 
 > PostgreSQL Single 설치가 완료된 VM을 복제하여 2대를 구성한다.
 
@@ -43,7 +43,7 @@ Single 설치 완료된 VM을 복제하여 2대 구성한다.
 
 ```bash
 hostnamectl set-hostname pg-primary
-nmcli con mod eth0 ipv4.addresses 172.31.0.260/16
+nmcli con mod eth0 ipv4.addresses 172.31.0.250/16
 nmcli con mod eth0 ipv4.gateway 172.31.0.1
 nmcli con down eth0 && nmcli con up eth0
 ```
@@ -52,20 +52,23 @@ nmcli con down eth0 && nmcli con up eth0
 
 ```bash
 hostnamectl set-hostname pg-standby
-nmcli con mod eth0 ipv4.addresses 172.31.0.261/16
+nmcli con mod eth0 ipv4.addresses 172.31.0.251/16
 nmcli con mod eth0 ipv4.gateway 172.31.0.1
 nmcli con down eth0 && nmcli con up eth0
 ```
 
 ### 1-3. /etc/hosts 등록 (전 노드 동일)
 
+> IP 주소와 호스트명을 매핑하는 파일이다.
+> 호스트명으로 통신할 때 DNS 서버보다 먼저 참조하므로 반드시 등록한다.
+
 ```bash
 vi /etc/hosts
 ```
 
-```
-172.31.0.260  pg-primary
-172.31.0.261  pg-standby
+```text
+172.31.0.250  pg-primary
+172.31.0.251  pg-standby
 ```
 
 ---
@@ -76,11 +79,15 @@ vi /etc/hosts
 
 **postgresql.conf 수정:**
 
+> `wal_level = replica` 이상이어야 Standby로 WAL 전송이 가능하다.
+> `max_wal_senders`는 동시에 WAL을 전송할 수 있는 최대 연결 수다.
+
 ```bash
 vi /var/lib/pgsql/15/data/postgresql.conf
 ```
 
-```
+```text
+listen_addresses = '*'
 wal_level = replica
 max_wal_senders = 3
 wal_keep_size = 64
@@ -88,22 +95,30 @@ wal_keep_size = 64
 
 **pg_hba.conf에 복제 접속 허용 추가:**
 
+> Standby(172.31.0.251)가 Primary에 복제 목적으로 접속할 수 있도록 허용한다.
+
 ```bash
 vi /var/lib/pgsql/15/data/pg_hba.conf
 ```
 
+```text
+host  replication  replication  172.31.0.251/32  md5
 ```
-host  replication  replicator  172.31.0.261/32  md5
-```
+
+<img width="407" height="94" alt="image" src="https://github.com/user-attachments/assets/06a52168-4022-415d-95d2-aecc449bcb12" />
 
 **복제 유저 생성:**
 
 ```bash
-psql -U postgres
+su - postgres
+psql
 ```
 
 ```sql
-CREATE USER replicator WITH REPLICATION PASSWORD 'replpass';
+CREATE USER replication WITH REPLICATION PASSWORD '1234';
+
+-- 확인
+\du
 EXIT;
 ```
 
@@ -115,16 +130,17 @@ systemctl restart postgresql-15
 
 **기존 데이터 디렉토리 초기화 후 베이스 백업 수신:**
 
+> `-R` 옵션이 standby.signal 파일과 복제 설정(postgresql.auto.conf)을 자동 생성한다.
+
 ```bash
 systemctl stop postgresql-15
 rm -rf /var/lib/pgsql/15/data/*
 
 # Primary에서 베이스 백업 수신
-pg_basebackup -h 172.31.0.260 -U replicator \
-  -D /var/lib/pgsql/15/data -Fp -Xs -P -R
+pg_basebackup -h 172.31.0.250 -U replication \
+  -D /var/lib/pgsql/15/data \
+  -Fp -Xs -P -R
 ```
-
-> `-R` 옵션이 standby.signal 파일과 복제 설정을 자동 생성한다.
 
 ```bash
 # 권한 설정
@@ -140,14 +156,19 @@ systemctl start postgresql-15
 
 ```sql
 SELECT client_addr, state, sync_state,
-       (sent_lsn - replay_lsn) AS replication_lag
+       pg_size_pretty(sent_lsn - replay_lsn) AS replication_lag
 FROM pg_stat_replication;
 ```
+
+> `state = streaming` 이고 `replication_lag = 0 bytes` 이면 정상이다.
 
 **Standby에서:**
 
 ```sql
 SELECT * FROM pg_stat_wal_receiver;
+
+-- Standby 여부 확인 (true = Standby)
+SELECT pg_is_in_recovery();
 ```
 
 ---
@@ -176,42 +197,42 @@ vi /etc/pgpool-II/pgpool.conf
 
 아래 항목을 수정한다:
 
-```
+```text
 # 접속 설정
 listen_addresses = '*'
-port = 9999                    # PgPool 접속 포트
+port = 9999
 
 # 백엔드 설정 (Primary)
 backend_hostname0 = 'pg-primary'
 backend_port0 = 5432
-backend_weight0 = 1            # 쓰기 비중
+backend_weight0 = 1
 backend_data_directory0 = '/var/lib/pgsql/15/data'
 backend_flag0 = 'ALLOW_TO_FAILOVER'
 
 # 백엔드 설정 (Standby)
 backend_hostname1 = 'pg-standby'
 backend_port1 = 5432
-backend_weight1 = 2            # 읽기 비중 (Primary보다 높게)
+backend_weight1 = 2
 backend_data_directory1 = '/var/lib/pgsql/15/data'
 backend_flag1 = 'ALLOW_TO_FAILOVER'
 
 # 커넥션 풀 설정
-num_init_children = 32         # 미리 생성할 프로세스 수
-max_pool = 4                   # 프로세스당 최대 캐시 연결 수
+num_init_children = 32
+max_pool = 4
 
-# 로드 밸런싱
-load_balance_mode = on         # 읽기 쿼리 분산 활성화
+# 로드 밸런싱 (읽기 쿼리를 Primary/Standby에 분산)
+load_balance_mode = on
 
 # 헬스 체크 (노드 장애 감지)
-health_check_period = 10       # 10초마다 체크
+health_check_period = 10
 health_check_timeout = 5
 health_check_user = 'postgres'
 health_check_password = 'oracle'
 
-# 복제 모드
+# Streaming Replication 모드
 backend_clustering_mode = 'streaming_replication'
-sr_check_user = 'replicator'
-sr_check_password = 'replpass'
+sr_check_user = 'replication'
+sr_check_password = '1234'
 ```
 
 ### 3-3. pool_hba.conf 설정
@@ -221,15 +242,17 @@ cp /etc/pgpool-II/pool_hba.conf.sample /etc/pgpool-II/pool_hba.conf
 vi /etc/pgpool-II/pool_hba.conf
 ```
 
-```
+```text
 host  all  all  172.31.0.0/16  md5
 ```
 
 ### 3-4. pool_passwd 파일 생성
 
+> PgPool-II가 백엔드 DB에 접속할 때 사용하는 비밀번호를 MD5로 암호화하여 저장한다.
+
 ```bash
 pg_md5 -m -u postgres oracle
-pg_md5 -m -u replicator replpass
+pg_md5 -m -u replication 1234
 ```
 
 ### 3-5. PgPool-II 시작
@@ -248,13 +271,12 @@ systemctl status pgpool
 
 ```bash
 # PgPool을 통해 DB 접속 (포트 9999)
-psql -h 172.31.0.260 -p 9999 -U postgres -d testdb
+psql -h 172.31.0.250 -p 9999 -U postgres -d testdb
 ```
 
 ### 4-2. 노드 상태 확인
 
 ```sql
--- PgPool에서 백엔드 노드 상태 확인
 SHOW pool_nodes;
 ```
 
@@ -269,25 +291,24 @@ SHOW pool_nodes;
 
 ```sql
 -- 여러 번 실행하여 다른 노드에서 처리되는지 확인
-SHOW pool_nodes;
 SELECT inet_server_addr();
+SHOW pool_nodes;
 ```
 
 ### 4-4. 장애 테스트
 
 ```bash
-# pg-standby 서비스 중지
-systemctl stop postgresql-15  # pg-standby에서
+# pg-standby 서비스 중지 (pg-standby에서)
+systemctl stop postgresql-15
 
-# PgPool에서 노드 상태 확인 (failover 감지)
-psql -h 172.31.0.260 -p 9999 -U postgres -c "SHOW pool_nodes;"
-# standby 노드 status = down 으로 변경됨
+# PgPool에서 노드 상태 확인 (standby status = down 으로 변경됨)
+psql -h 172.31.0.250 -p 9999 -U postgres -c "SHOW pool_nodes;"
 
-# pg-standby 복구
-systemctl start postgresql-15  # pg-standby에서
+# pg-standby 복구 (pg-standby에서)
+systemctl start postgresql-15
 
 # PgPool에 재합류
-pcp_attach_node -h 172.31.0.260 -p 9898 -u pgpool -w 1
+pcp_attach_node -h 172.31.0.250 -p 9898 -u pgpool -w 1
 ```
 
 ---
@@ -309,7 +330,8 @@ pcp_attach_node -h 172.31.0.260 -p 9898 -u pgpool -w 1
 
 | 증상 | 원인 | 해결 |
 |------|------|------|
-| pg_basebackup 실패 | pg_hba.conf 미설정 | replication 허용 행 추가 |
+| pg_basebackup 인증 실패 | pg_hba.conf 미설정 또는 Standby IP 오류 | replication 허용 행 추가, IP 확인 |
+| pg_basebackup 연결 실패 | listen_addresses = localhost | postgresql.conf에서 `*`로 변경 |
 | Standby 시작 실패 | standby.signal 없음 | pg_basebackup -R 옵션 확인 |
 | PgPool 접속 실패 | pool_hba.conf 미설정 | 클라이언트 IP 허용 추가 |
 | 노드 장애 감지 안 됨 | health_check_period 미설정 | pgpool.conf 헬스 체크 설정 |
